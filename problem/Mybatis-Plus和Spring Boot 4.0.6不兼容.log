@@ -1,0 +1,253 @@
+MyBatis-Plus 自动配置与 Spring Boot 4.0.6 不兼容
+  核心问题是 MybatisPlusAutoConfiguration 在启动时检测不到 DataSource
+  Bean。原因是 MyBatis-Plus 3.5.12 的自动配置类没有标注
+  @AutoConfigureAfter(DataSourceAutoConfiguration.class)，在 Spring Boot
+  4.x / Spring 7.x 的自动配置排序下，它先于 DataSource
+  的自动配置执行，找不到 DataSource，skip 了，因此 SqlSessionFactory
+  没有被创建。
+
+  手动写 MyBatisPlusConfig 后，又因为 classpath:mapper/*.xml
+  的目录不存在（第一次运行时还没有 XML 文件），多报了一个错。
+
+  最终解决方案就是：手动配置 SqlSessionFactory，并且不给它指定
+  mapperLocations（因为 MVP 阶段用 BaseMapper 不需要 XML）。
+
+从看到错误日志到找到根因，一步步排查的：
+
+  第一步：看错误信息
+  Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required
+  这告诉我 MyBatis-Plus 的 Mapper 在启动时找不到 SqlSessionFactory。
+
+  第二步：确认不是简单问题
+  加上 @MapperScan 没解决，说明问题不是 Mapper 没被扫描到，而是
+  SqlSessionFactory 这个 Bean 根本不存在。
+
+  第三步：用 --debug 看 Spring Boot 的自动配置报告
+  这是关键一步。在输出里看到两条关键信息：
+
+  DataSourceConfiguration.Hikari matched ✓
+  → DataSource 的自动配置条件满足，说明数据库连接配置没问题。
+
+  MybatisPlusAutoConfiguration:
+    Did not match:
+      - @ConditionalOnSingleCandidate (types: javax.sql.DataSource)
+        did not find any beans
+  → MyBatis-Plus 说"没找到 DataSource Bean"。
+
+  第四步：矛盾点
+  DataSource 自动配置说"我匹配了"，MyBatis-Plus 却说"没找到
+  DataSource"。这说明执行顺序有问题——MyBatis-Plus 在 DataSource
+  创建之前就被执行了，所以那个时刻确实没有 DataSource。
+
+  第五步：定位根因
+  这是 MyBatis-Plus 3.5.12 的 MybatisPlusAutoConfiguration 缺少
+  @AutoConfigureAfter(DataSourceAutoConfiguration.class) 注解，在 Spring
+  Boot 4.x 的自动配置排序下顺序不对导致的。
+
+这是一个很深入的问题。Claude 给出的解释版本是：MybatisPlusAutoConfiguration 的自动配置类没有标注 @AutoConfigureAfter(DataSourceAutoConfiguration.class)，导致它先于数据源执行，找不到 DataSource 就跳过了。
+
+这个说法部分正确，但不够完整。我结合源码机制来分析一下，为什么 MyBatis-Plus 3.5.12 与 Spring Boot 4.0.6 的组合下自动配置会失败。
+
+快览：失效的完整原因链条
+text
+Spring Boot 启动
+    ↓
+扫描所有自动配置类
+    ↓
+1. MybatisPlusAutoConfiguration 执行
+    ↓ 检查 @ConditionalOnClass({SqlSessionFactory.class, ...})
+    ✅ 条件满足（MyBatis-Plus 的类都在 classpath 上）
+    ↓
+2. 尝试创建 SqlSessionFactory Bean
+    ↓
+   需要 DataSource 作为依赖
+    ↓ 但此时 Spring 容器中还没有 DataSource Bean 的定义
+    ↓ 因为 DataSourceAutoConfiguration 还没被执行
+    ↓
+3. 但 @ConditionalOnMissingBean 条件通过（确实没有人创建过）
+    ↓
+4. MybatisSqlSessionFactoryBean 尝试构建
+    ↓
+   发现 DataSource 为 null 或者配置不完整
+    ↓
+❌ 抛出异常：Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required
+关键问题在于：自动配置的执行顺序。
+
+一、Spring Boot 自动配置的执行机制
+1.1 自动配置类如何被发现
+Spring Boot 启动时，会扫描 classpath 下 META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports 文件中列出的所有自动配置类。MyBatis-Plus 在这个文件中注册了 MybatisPlusAutoConfiguration。
+
+1.2 执行顺序由什么决定
+Spring Boot 通过三个注解来控制自动配置类的执行顺序：
+
+注解	作用
+@AutoConfigureAfter(Xxx.class)	在 Xxx 配置类之后执行
+@AutoConfigureBefore(Xxx.class)	在 Xxx 配置类之前执行
+@AutoConfigureOrder(N)	指定优先级数字，越小越先执行
+自动配置的典型做法：如果一个配置类依赖于另一个（比如 MyBatis-Plus 依赖 DataSource），它应该用 @AutoConfigureAfter(DataSourceAutoConfiguration.class) 来确保在 DataSource 配置完成后再执行。
+
+二、MyBatis-Plus 自动配置类的实际行为
+2.1 MybatisPlusAutoConfiguration 的创建条件
+java
+// MybatisPlusAutoConfiguration 源码（简化）
+@AutoConfiguration
+@ConditionalOnClass({SqlSessionFactory.class, SqlSessionFactoryBean.class})
+public class MybatisPlusAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SqlSessionFactory sqlSessionFactory(DataSource dataSource) {
+        // 创建 SqlSessionFactory，注入 DataSource
+    }
+}
+配置类上的 @ConditionalOnClass 条件是满足的（MyBatis-Plus 的类在 classpath 上），所以它会被加载。
+
+问题在于：MybatisPlusAutoConfiguration 在执行创建 SqlSessionFactory 的 Bean 方法时，需要 DataSource 参数。但如果 DataSourceAutoConfiguration 还没执行，这个依赖从哪里来？
+
+2.2 缺少排序注解导致的连锁反应
+如果 MybatisPlusAutoConfiguration 没有显式使用 @AutoConfigureAfter(DataSourceAutoConfiguration.class)，那么 Spring Boot 会按照自己的规则排序。在某些情况下（尤其是 Spring Boot 3.x/4.x 版本），这种排序可能会导致：
+
+MybatisPlusAutoConfiguration 先于 DataSourceAutoConfiguration 执行
+
+创建 SqlSessionFactory 时尝试注入 DataSource
+
+此时 DataSource Bean 还不存在
+
+整个配置过程失败，SqlSessionFactory 未被成功创建
+
+2.3 为什么手动配置就能工作
+你手动写的配置：
+
+java
+@Bean
+public SqlSessionFactory sqlSessionFactory(DataSource dataSource) {
+    // ...
+}
+在你的 MyBatisPlusConfig 类中（通常用 @Configuration 标注），Spring 在处理用户配置类时，会先完成依赖注入的解析。由于 DataSource 的创建可能在其他配置类中已经完成，所以你的手动配置能被正确注入。
+
+三、JDK 版本与依赖生态的深远影响（Spring Boot 4.x 特有）
+3.1 Jakarta EE 迁移带来的兼容性问题
+Spring Boot 3.x 及更高版本（包括 4.x）有一个根本性变化：从 javax.* 迁移到了 jakarta.* 命名空间。
+
+Spring Boot 版本	包命名空间	Java 版本要求
+2.x	javax.*	Java 8/11
+3.x / 4.x	jakarta.*	Java 17+
+MyBatis-Plus 3.5.0+ 版本已经适配了 Jakarta EE，但自动配置机制的兼容性在不同版本之间存在差异。使用 Spring Boot 4.0.6（对应 Spring Boot 3.x/4.x 技术栈）时，这种适配需要涵盖：
+
+javax.sql.DataSource → jakarta.sql.DataSource
+
+MyBatis 内部对 DataSource 的依赖管理
+
+条件注解对类加载顺序的敏感度
+
+3.2 类加载顺序与自动配置排序的耦合
+Spring Boot 4.x / Spring 7.x 对自动配置排序的内部实现可能发生了调整，导致 MybatisPlusAutoConfiguration 在默认情况下排序过于靠前。这正是你场景中的核心问题。
+
+四、完整的技术原因总结
+直接原因
+MybatisPlusAutoConfiguration 在执行时，DataSourceAutoConfiguration 尚未执行，导致 DataSource Bean 不存在，但配置类仍尝试创建依赖它的 Bean，引发失败。
+
+深层原因（三重因素叠加）
+自动配置排序：MyBatis-Plus 的自动配置类没有使用 @AutoConfigureAfter 来显式声明对 DataSourceAutoConfiguration 的依赖顺序
+
+Spring Boot 4.x 的更严格排序：相比于 Spring Boot 2.x，新版本在自动配置的初始化顺序上有不同的内部实现，排序差异更敏感
+
+Jakarta EE 迁移带来的复杂依赖：Spring Boot 4.x 整体迁移到了 Jakarta 命名空间，MyBatis-Plus 需要在新包名体系下正确排定初始化顺序
+
+根本原因
+mybatis-plus-spring-boot3-starter 在 3.5.12 版本中，对 Spring Boot 3.x/4.x 的 AutoConfiguration 执行顺序假设不完全匹配实际情况。某些条件下，其排序优先级比 DataSource 的配置类更高，却没有显式声明依赖关系。
+
+五、对不同版本的兼容性说明
+MyBatis-Plus 官方正在逐步完善对不同 Spring Boot 版本的适配：
+
+Spring Boot 版本	推荐的 MyBatis-Plus Starter	状态
+2.x	mybatis-plus-boot-starter	成熟稳定
+3.x	mybatis-plus-spring-boot3-starter	基本兼容，少数问题
+4.x	mybatis-plus-spring-boot4-starter	已开始提供（自 3.5.12 之后版本，如 3.5.14）
+你使用的是 Spring Boot 4.0.6，但选择的是 mybatis-plus-spring-boot3-starter。这可能就是问题的根源之一——Boot4 专用 starter 对排序问题的处理可能更完善。
+
+六、解决方案的演进
+当前方案（可用）
+手动配置 SqlSessionFactory，这是绕过自动配置顺序问题的可靠方式。
+
+未来优化（推荐尝试）
+升级到 mybatis-plus-spring-boot4-starter（如果项目已提供该依赖）：
+
+xml
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+    <version>3.5.14</version>  <!-- 或更高版本 -->
+</dependency>
+这样可能让自动配置恢复正常，从而省略手动配置类。
+
+一句话总结
+自动配置失效，是因为 MybatisPlusAutoConfiguration 没有通过 @AutoConfigureAfter 声明对 DataSourceAutoConfiguration 的依赖关系，而 Spring Boot 4.x 的执行顺序恰好让它跑在了前面；当你手动配置 SqlSessionFactory 时，Spring 的依赖注入机制保证了 DataSource 先准备好，所以能成功。
+
+
+
+  log:
+ 2026-05-08T12:59:05.793+08:00 ERROR 81081 --- [main] o.s.boot.SpringApplication               : Application run failed
+
+ org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'userController': Unsatisfied dependency expressed through field 'userService': Error creating bean with name 'userService': Unsatisfied dependency expressed through field 'userMapper': Error creating bean with name 'userMapper' defined in file [/Users/chenyu/Documents/Java/Project/community-forum/target/classes/com/community/mapper/UserMapper.class]: Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor$AutowiredFieldElement.resolveFieldValue(AutowiredAnnotationBeanPostProcessor.java:767) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor$AutowiredFieldElement.inject(AutowiredAnnotationBeanPostProcessor.java:748) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.InjectionMetadata.inject(InjectionMetadata.java:146) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor.postProcessProperties(AutowiredAnnotationBeanPostProcessor.java:493) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.populateBean(AbstractAutowireCapableBeanFactory.java:1446) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:602) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:525) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:333) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:371) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:331) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:196) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1218) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1184) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1121) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:994) ~[spring-context-7.0.7.jar:7.0.7]
+ 	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:621) ~[spring-context-7.0.7.jar:7.0.7]
+ 	at org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:143) ~[spring-boot-web-server-4.0.6.jar:4.0.6]
+ 	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:756) ~[spring-boot-4.0.6.jar:4.0.6]
+ 	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:445) ~[spring-boot-4.0.6.jar:4.0.6]
+ 	at org.springframework.boot.SpringApplication.run(SpringApplication.java:321) ~[spring-boot-4.0.6.jar:4.0.6]
+ 	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1365) ~[spring-boot-4.0.6.jar:4.0.6]
+ 	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1354) ~[spring-boot-4.0.6.jar:4.0.6]
+ 	at com.community.CommunityForumApplication.main(CommunityForumApplication.java:13) ~[classes/:na]
+ Caused by: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'userService': Unsatisfied dependency expressed through field 'userMapper': Error creating bean with name 'userMapper' defined in file [/Users/chenyu/Documents/Java/Project/community-forum/target/classes/com/community/mapper/UserMapper.class]: Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor$AutowiredFieldElement.resolveFieldValue(AutowiredAnnotationBeanPostProcessor.java:767) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor$AutowiredFieldElement.inject(AutowiredAnnotationBeanPostProcessor.java:748) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.InjectionMetadata.inject(InjectionMetadata.java:146) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor.postProcessProperties(AutowiredAnnotationBeanPostProcessor.java:493) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.populateBean(AbstractAutowireCapableBeanFactory.java:1446) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:602) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:525) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:333) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:371) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:331) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:201) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.resolveBean(DefaultListableBeanFactory.java:1225) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.doResolveDependency(DefaultListableBeanFactory.java:1704) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.resolveDependency(DefaultListableBeanFactory.java:1651) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor$AutowiredFieldElement.resolveFieldValue(AutowiredAnnotationBeanPostProcessor.java:764) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	... 22 common frames omitted
+ Caused by: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'userMapper' defined in file [/Users/chenyu/Documents/Java/Project/community-forum/target/classes/com/community/mapper/UserMapper.class]: Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1817) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:603) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:525) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:333) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:371) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:331) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:201) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.resolveBean(DefaultListableBeanFactory.java:1225) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.doResolveDependency(DefaultListableBeanFactory.java:1704) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.resolveDependency(DefaultListableBeanFactory.java:1651) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor$AutowiredFieldElement.resolveFieldValue(AutowiredAnnotationBeanPostProcessor.java:764) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	... 36 common frames omitted
+ Caused by: java.lang.IllegalArgumentException: Property 'sqlSessionFactory' or 'sqlSessionTemplate' are required
+ 	at org.springframework.util.Assert.notNull(Assert.java:182) ~[spring-core-7.0.7.jar:7.0.7]
+ 	at org.mybatis.spring.support.SqlSessionDaoSupport.checkDaoConfig(SqlSessionDaoSupport.java:122) ~[mybatis-spring-3.0.4.jar:3.0.4]
+ 	at org.mybatis.spring.mapper.MapperFactoryBean.checkDaoConfig(MapperFactoryBean.java:69) ~[mybatis-spring-3.0.4.jar:3.0.4]
+ 	at org.springframework.dao.support.DaoSupport.afterPropertiesSet(DaoSupport.java:46) ~[spring-tx-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.invokeInitMethods(AbstractAutowireCapableBeanFactory.java:1864) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1813) ~[spring-beans-7.0.7.jar:7.0.7]
+ 	... 46 common frames omitted
