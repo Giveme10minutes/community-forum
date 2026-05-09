@@ -20,6 +20,7 @@ public class WebConfigurer implements WebMvcConfigurer {
                 .addPathPatterns("/**")
                 .excludePathPatterns("/user/login")
                 .excludePathPatterns("/user/register")
+                .excludePathPatterns("/api/test")
                 .order(1);
     }
 
