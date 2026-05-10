@@ -21,6 +21,8 @@ public class WebConfigurer implements WebMvcConfigurer {
                 .excludePathPatterns("/user/login")
                 .excludePathPatterns("/user/register")
                 .excludePathPatterns("/api/test")
+                .excludePathPatterns("/post/{id}")
+                .excludePathPatterns("/post/getPostByPage")
                 .order(1);
     }
 
