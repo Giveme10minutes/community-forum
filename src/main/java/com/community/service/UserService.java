@@ -3,6 +3,7 @@ package com.community.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.community.common.Exception.BusinessException;
 import com.community.entity.User;
 import com.community.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +22,7 @@ public class UserService {
         User user = userMapper.selectOne(wrapper);
 
         if (!(user == null)) {
-            throw new RuntimeException("用户已经存在");
+            throw new BusinessException("用户已经存在");
         }
     }
 
@@ -30,7 +31,6 @@ public class UserService {
         user.setUserName(userName);
         String encode = passwordEncoder.encode(rawPassword);
         user.setPassword(encode);
-
         userMapper.insert(user);
         return user;
     }
@@ -41,11 +41,11 @@ public class UserService {
         User user = userMapper.selectOne(wrapper);
 
         if (user == null) {
-            throw new RuntimeException("用户名字或密码错误");
+            throw new BusinessException("用户名字或密码错误");
         }
 
         if (!passwordEncoder.matches(rawPassword, user.getPassword())) {
-            throw new RuntimeException("用户名字或密码错误");
+            throw new BusinessException("用户名字或密码错误");
         }
 
         return user;

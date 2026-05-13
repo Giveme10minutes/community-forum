@@ -2,6 +2,7 @@ package com.community.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.community.common.Exception.BusinessException;
 import com.community.entity.Comment;
 import com.community.entity.Post;
 import com.community.mapper.CommentMapper;
@@ -26,7 +27,7 @@ public class CommentService {
 
         int rows = commentMapper.insert(comment);
         if (rows == 0) {
-            throw new RuntimeException("评论发表失败，请稍后再试");
+            throw new BusinessException("评论发表失败，请稍后再试");
         }
 
         LambdaUpdateWrapper<Post> wrapper = new LambdaUpdateWrapper<>();

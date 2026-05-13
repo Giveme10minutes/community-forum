@@ -20,22 +20,14 @@ public class CommentController {
 
     @PostMapping
     public Result<Void> addComment(@CurrentUserId Long userId, Long postId, String content) {
-        try {
-            commentService.addComment(userId, postId, content);
-        } catch (Exception e) {
-            return Result.error(e.getMessage());
-        }
+        commentService.addComment(userId, postId, content);
         return Result.success(null);
     }
 
     @GetMapping
     public Result<List<Comment>> getCommentByPostId(Long postId) {
         List<Comment> list;
-        try {
-            list = commentService.getCommentByPostId(postId);
-        } catch (Exception e) {
-            return Result.error(e.getMessage());
-        }
+        list = commentService.getCommentByPostId(postId);
         return Result.success(list);
     }
 }

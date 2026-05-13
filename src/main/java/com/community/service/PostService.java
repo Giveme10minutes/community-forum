@@ -2,6 +2,7 @@ package com.community.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.community.common.Exception.BusinessException;
 import com.community.entity.Post;
 import com.community.mapper.PostMapper;
 import com.community.mapper.UserMapper;
@@ -24,7 +25,7 @@ public class PostService {
 
         int row = postMapper.insert(post);
         if (row == 0) {
-            throw new RuntimeException("添加失败");
+            throw new BusinessException("添加失败");
         }
 
         LambdaQueryWrapper<Post> wrapper = new LambdaQueryWrapper<>();

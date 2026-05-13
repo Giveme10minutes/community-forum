@@ -17,13 +17,9 @@ public class CategoryController {
     private CategoryService categoryService;
 
     @GetMapping
-    public Result<List<Category>> listAll(){
+    public Result<List<Category>> listAll() {
         List<Category> list;
-        try {
-            list=categoryService.listCategory();
-        }catch (Exception e){
-            return Result.error(e.getMessage());
-        }
+        list = categoryService.listCategory();
         return Result.success(list);
     }
 }
