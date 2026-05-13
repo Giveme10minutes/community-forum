@@ -16,7 +16,7 @@ public class CategoryController {
     @Autowired
     private CategoryService categoryService;
 
-    @GetMapping("/listall")
+    @GetMapping
     public Result<List<Category>> listAll(){
         List<Category> list;
         try {

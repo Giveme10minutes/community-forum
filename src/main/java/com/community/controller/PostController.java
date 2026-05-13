@@ -15,7 +15,7 @@ public class PostController {
     @Autowired
     private PostService postService;
 
-    @PostMapping("/post")
+    @PostMapping
     public Result<Void> post(@CurrentUserId Long userId, Long categoryId, String title, String content) {
         Post post;
         try {
@@ -37,7 +37,7 @@ public class PostController {
         return Result.success(post);
     }
 
-    @GetMapping("/getPostByPage")
+    @GetMapping
     public Result<Page<Post>> getPostByPage(int pageNum, int pageSize, @RequestParam(required = false) Long categoryId) {
         Page<Post> list;
         try {
