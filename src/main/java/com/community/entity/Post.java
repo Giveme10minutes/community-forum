@@ -10,9 +10,10 @@ import java.util.Date;
 public class Post {
     private Long id;
     private Long userId;
-    private  Long categoryId;
+    private Long categoryId;
     private String title;
     private String content;
+    private Long viewCount;
     private Long commentCount;
     private Date createTime;
     private Date updateTime;

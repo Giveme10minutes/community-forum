@@ -2,10 +2,10 @@ package com.community.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.community.cache.PostViewService;
 import com.community.common.Exception.BusinessException;
 import com.community.entity.Post;
 import com.community.mapper.PostMapper;
-import com.community.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -14,7 +14,8 @@ public class PostService {
     @Autowired
     private PostMapper postMapper;
     @Autowired
-    private UserMapper userMapper;
+    private PostViewService postViewService;
+
 
     public Post post(Long userId, Long categoryId, String title, String content) {
         Post post = new Post();
@@ -47,5 +48,9 @@ public class PostService {
             wrapper.eq(Post::getCategoryId, categoryId);
         }
         return postMapper.selectPage(page, wrapper);
+    }
+
+    public Long getPostWithViewCount(Long postId){
+        return postViewService.increment(postId);
     }
 }

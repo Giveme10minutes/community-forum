@@ -12,6 +12,7 @@ Java 后端社区论坛（MVP）。用户可注册、登录、发帖、分页浏
 - MyBatis-Plus 3.5.12（Spring Boot 3.x starter）
 - MySQL 9
 - JJWT 0.12.7（api + impl + jackson）
+- Redis（Spring Data Redis，浏览量缓存）
 - Lombok
 
 ## 架构
@@ -31,8 +32,9 @@ com.community
 │   ├── result/     — Result<T> 统一返回
 │   ├── exception/  — 全局异常处理
 │   └── constant/   — 常量
+├── cache/          — Redis 缓存层（浏览量等）
 ├── config/         — JwtInterceptor, WebMvcConfig, MyBatis-Plus 配置
-├── util/           — JwtUtil 等工具类
+├── utils/          — JwtUtil 等工具类
 └── annotation/     — @CurrentUserId
 ```
 
@@ -45,8 +47,8 @@ MVP 各阶段按顺序：
 4. **分类模块**：分类列表（数据库预置数据）
 5. **帖子模块**（核心）：发帖、分页列表、按分类筛选、帖子详情
 6. **评论模块**：发表评论、评论列表（更新 post.comment_count）
-7. **通用能力**：Result<T>、全局异常处理、参数校验
-8. **优化**：Redis 浏览量缓存（加分项）
+7. **通用能力**：Result<T>、全局异常处理、参数校验 ✅
+8. **优化**：Redis 浏览量缓存（进行中）
 
 ## 构建与运行
 
@@ -71,11 +73,8 @@ mvn dependency:resolve
 - 分页使用 `page` 和 `size` 查询参数，SQL 中用 `limit` 实现偏移
 - 响应统一使用 `Result<T>` 封装
 - 需要登录的接口从 JWT 中提取 `user_id`，不从请求体获取
-
-## 当前已知问题
-
-- `CommunityForumApplication.java` 的 main 方法缺少 `SpringApplication.run(...)`
-- pom.xml 已从原生 MyBatis 切换为 MyBatis-Plus（但配置中仍引用 `mybatis.mapper-locations` 和 `mybatis.type-aliases-package`，需要对齐）
+- Redis 配置前缀：`spring.data.redis`（Spring Boot 4.x）
+- 浏览量缓存 key 格式：`post:view:{postId}`
 
 
 你是我的编程教练，不是代码生成器。请严格遵守以下规则指导我完成项目：

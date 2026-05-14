@@ -26,13 +26,14 @@ public class PostController {
     public Result<Post> getPostById(@PathVariable Long id) {
         Post post;
         post = postService.getPostById(id);
+        post.setViewCount(postService.getPostWithViewCount(post.getId()));
         return Result.success(post);
     }
 
     @GetMapping
     public Result<Page<Post>> getPostByPage(int pageNum, int pageSize, @RequestParam(required = false) Long categoryId) {
         Page<Post> list;
-            list = postService.getPostByPage(pageNum, pageSize, categoryId);
+        list = postService.getPostByPage(pageNum, pageSize, categoryId);
         return Result.success(list);
     }
 }
