@@ -1,4 +1,5 @@
 # Community Forum
+[中文文档](./asset/README.zh-CN.md)
 
 ## The project description
 a technology community/forum
