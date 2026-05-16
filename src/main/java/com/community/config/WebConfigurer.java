@@ -23,6 +23,8 @@ public class WebConfigurer implements WebMvcConfigurer {
                 .excludePathPatterns("/api/test")
                 .excludePathPatterns("/post/{id}")
                 .excludePathPatterns("/post/getPostByPage")
+                .excludePathPatterns("/swagger-ui/**", "/v3/api-docs/**", "/swagger-resources/**", "/webjars/**")
+                .excludePathPatterns("/api/swagger-ui/**", "/api/v3/api-docs/**", "/api/swagger-resources/**", "/api/webjars/**")
                 .order(1);
     }
 
