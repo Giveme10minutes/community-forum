@@ -31,6 +31,7 @@
 5. 访问 http://localhost:8080/swagger-ui/index.html 查看 API 文档
 
 ## 项目结构
+```
 com.community
 ├── annotation
 │   └── CurrentUserId.java          # 当前用户注解
@@ -71,6 +72,7 @@ com.community
 │   └── UserService.java
 └── utils
 └── JwtUtil.java                 # JWT 工具类
+```
 
 ## API文档
 http://localhost:8080/swagger-ui/index.html
