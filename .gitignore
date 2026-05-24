@@ -3,7 +3,7 @@ target/
 .kotlin
 .idea/
 .logs/
-
+frontend/
 /cy.env
 
 ### IntelliJ IDEA ###

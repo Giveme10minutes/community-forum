@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/user")
 public class UserController {
@@ -22,17 +25,23 @@ public class UserController {
     private JwtUtil jwtUtil;
 
     @PostMapping("/register")
-    public Result<String> register(@Valid @RequestBody RegisterRequest request) {
+    public Result<Map<String,String >> register(@Valid @RequestBody RegisterRequest request) {
         userService.userExists(request.getUserName());
         User user = userService.register(request.getUserName(), request.getPassword());
-        return Result.success(jwtUtil.generateToken(user.getId(),user.getUserName()));
+        Map<String ,String > map=new HashMap<>();
+        map.put("token",jwtUtil.generateToken(user.getId(),user.getUserName()));
+        map.put("userName",user.getUserName());
+        return Result.success(map);
     }
 
     @PostMapping("/login")
-    public Result<String> login(@Valid @RequestBody RegisterRequest request) {
+    public Result<Map<String,String >> login(@Valid @RequestBody RegisterRequest request) {
         User user;
         user = userService.login(request.getUserName(), request.getPassword());
-        return Result.success(jwtUtil.generateToken(user.getId(), user.getUserName()));
+        Map<String ,String > map=new HashMap<>();
+        map.put("token",jwtUtil.generateToken(user.getId(),user.getUserName()));
+        map.put("userName",user.getUserName());
+        return Result.success(map);
     }
 
 }
