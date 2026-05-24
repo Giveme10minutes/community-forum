@@ -4,6 +4,8 @@ target/
 .idea/
 .logs/
 
+/cy.env
+
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml

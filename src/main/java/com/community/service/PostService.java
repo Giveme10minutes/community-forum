@@ -50,7 +50,7 @@ public class PostService {
         return postMapper.selectPage(page, wrapper);
     }
 
-    public Long getPostWithViewCount(Long postId){
+    public Long getPostViewCount(Long postId){
         return postViewService.increment(postId);
     }
 }

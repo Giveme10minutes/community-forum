@@ -22,10 +22,10 @@ public class UserController {
     private JwtUtil jwtUtil;
 
     @PostMapping("/register")
-    public Result<Void> register(@Valid @RequestBody RegisterRequest request) {
+    public Result<String> register(@Valid @RequestBody RegisterRequest request) {
         userService.userExists(request.getUserName());
         User user = userService.register(request.getUserName(), request.getPassword());
-        return Result.success(null);
+        return Result.success(jwtUtil.generateToken(user.getId(),user.getUserName()));
     }
 
     @PostMapping("/login")

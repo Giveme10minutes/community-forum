@@ -14,7 +14,7 @@ public class PostViewService {
         return redisTemplate.opsForValue().increment(key);
     }
 
-    public Long getViewCount(Long postId) {
+    public Long incrementViewCount(Long postId) {
         String key = "post:view:" + postId;
         String  string = redisTemplate.opsForValue().get(key);
         if (string == null) {

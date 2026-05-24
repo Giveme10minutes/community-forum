@@ -26,7 +26,7 @@ public class PostController {
     public Result<Post> getPostById(@PathVariable Long id) {
         Post post;
         post = postService.getPostById(id);
-        post.setViewCount(postService.getPostWithViewCount(post.getId()));
+        post.setViewCount(postService.getPostViewCount(post.getId()));
         return Result.success(post);
     }
 
